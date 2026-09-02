@@ -1,46 +1,60 @@
 from database import get_db_connection
 
-def get_best_selling_products(store_id):
+
+def get_best_selling_products(store_id, start_date=None, end_date=None):
     db = get_db_connection()
     cursor = db.cursor(dictionary=True)
 
     sql = """
         SELECT
-            products.product_id,
-            products.product_name,
-            categories.category_name,
+            p.product_id,
+            p.product_name,
+            c.category_name,
 
-            COALESCE(
-                SUM(sale_items.quantity),
-                0
-            ) AS total_quantity_sold,
+            COALESCE(SUM(si.quantity), 0) AS total_quantity_sold,
 
-            COALESCE(
-                SUM(sale_items.subtotal),
-                0
-            ) AS total_sales
+            COALESCE(SUM(si.subtotal), 0) AS total_sales
 
-        FROM products
+        FROM products p
 
-        LEFT JOIN categories
-            ON products.category_id = categories.category_id
+        LEFT JOIN categories c
+            ON p.category_id = c.category_id
 
-        LEFT JOIN sale_items
-            ON products.product_id = sale_items.product_id
+        LEFT JOIN sale_items si
+            ON p.product_id = si.product_id
 
-        WHERE products.store_id = %s
+        LEFT JOIN sales s
+            ON si.sale_id = s.sale_id
+            AND s.store_id = %s
+    """
 
+    params = [store_id]
+
+    conditions = ["p.store_id = %s"]
+    params.append(store_id)
+
+    if start_date:
+        conditions.append("DATE(s.sale_date) >= %s")
+        params.append(start_date)
+
+    if end_date:
+        conditions.append("DATE(s.sale_date) <= %s")
+        params.append(end_date)
+
+    sql += " WHERE " + " AND ".join(conditions)
+
+    sql += """
         GROUP BY
-            products.product_id,
-            products.product_name,
-            categories.category_name
+            p.product_id,
+            p.product_name,
+            c.category_name
 
         ORDER BY
             total_quantity_sold DESC,
             total_sales DESC
     """
 
-    cursor.execute(sql, (store_id,))
+    cursor.execute(sql, tuple(params))
     products = cursor.fetchall()
 
     cursor.close()
@@ -48,47 +62,56 @@ def get_best_selling_products(store_id):
 
     return products
 
-def get_slow_moving_products(store_id):
+
+def get_slow_moving_products(store_id, start_date=None, end_date=None):
     db = get_db_connection()
     cursor = db.cursor(dictionary=True)
 
     sql = """
         SELECT
-            products.product_id,
-            products.product_name,
-            categories.category_name,
+            p.product_id,
+            p.product_name,
+            c.category_name,
 
-            COALESCE(
-                SUM(sale_items.quantity),
-                0
-            ) AS total_quantity_sold,
+            COALESCE(SUM(si.quantity), 0) AS total_quantity_sold,
 
-            COALESCE(
-                SUM(sale_items.subtotal),
-                0
-            ) AS total_sales,
+            COALESCE(SUM(si.subtotal), 0) AS total_sales,
 
-            COUNT(
-                DISTINCT DATE(sales.sale_date)
-            ) AS sales_days
+            COUNT(DISTINCT DATE(s.sale_date)) AS sales_days
 
-        FROM products
+        FROM products p
 
-        LEFT JOIN categories
-            ON products.category_id = categories.category_id
+        LEFT JOIN categories c
+            ON p.category_id = c.category_id
 
-        LEFT JOIN sale_items
-            ON products.product_id = sale_items.product_id
+        LEFT JOIN sale_items si
+            ON p.product_id = si.product_id
 
-        LEFT JOIN sales
-            ON sale_items.sale_id = sales.sale_id
+        LEFT JOIN sales s
+            ON si.sale_id = s.sale_id
+            AND s.store_id = %s
+    """
 
-        WHERE products.store_id = %s
+    params = [store_id]
 
+    conditions = ["p.store_id = %s"]
+    params.append(store_id)
+
+    if start_date:
+        conditions.append("DATE(s.sale_date) >= %s")
+        params.append(start_date)
+
+    if end_date:
+        conditions.append("DATE(s.sale_date) <= %s")
+        params.append(end_date)
+
+    sql += " WHERE " + " AND ".join(conditions)
+
+    sql += """
         GROUP BY
-            products.product_id,
-            products.product_name,
-            categories.category_name
+            p.product_id,
+            p.product_name,
+            c.category_name
 
         HAVING total_quantity_sold <= 10
 
@@ -97,7 +120,7 @@ def get_slow_moving_products(store_id):
             total_sales ASC
     """
 
-    cursor.execute(sql, (store_id,))
+    cursor.execute(sql, tuple(params))
     products = cursor.fetchall()
 
     cursor.close()
@@ -105,39 +128,44 @@ def get_slow_moving_products(store_id):
 
     return products
 
-def get_daily_sales_trends(store_id):
+
+def get_daily_sales_trends(store_id, start_date=None, end_date=None):
     db = get_db_connection()
     cursor = db.cursor(dictionary=True)
 
     sql = """
         SELECT
-            DATE(sales.sale_date) AS sale_date,
+            DATE(s.sale_date) AS sale_date,
 
-            COALESCE(
-                SUM(sale_items.quantity),
-                0
-            ) AS total_quantity_sold,
+            COALESCE(SUM(si.quantity), 0) AS total_quantity_sold,
 
-            COALESCE(
-                SUM(sale_items.subtotal),
-                0
-            ) AS total_sales
+            COALESCE(SUM(si.subtotal), 0) AS total_sales
 
-        FROM sales
+        FROM sales s
 
-        JOIN sale_items
-            ON sales.sale_id = sale_items.sale_id
+        JOIN sale_items si
+            ON s.sale_id = si.sale_id
 
-        WHERE sales.store_id = %s
-
-        GROUP BY
-            DATE(sales.sale_date)
-
-        ORDER BY
-            sale_date ASC
+        WHERE s.store_id = %s
     """
 
-    cursor.execute(sql, (store_id,))
+    params = [store_id]
+
+    if start_date:
+        sql += " AND DATE(s.sale_date) >= %s"
+        params.append(start_date)
+
+    if end_date:
+        sql += " AND DATE(s.sale_date) <= %s"
+        params.append(end_date)
+
+    sql += """
+        GROUP BY DATE(s.sale_date)
+
+        ORDER BY sale_date ASC
+    """
+
+    cursor.execute(sql, tuple(params))
     trends = cursor.fetchall()
 
     cursor.close()
@@ -145,148 +173,168 @@ def get_daily_sales_trends(store_id):
 
     return trends
 
-def get_weekly_sales(store_id):
+
+def get_weekly_sales(store_id, start_date=None, end_date=None):
     db = get_db_connection()
     cursor = db.cursor(dictionary=True)
 
     sql = """
         SELECT
-            YEAR(sales.sale_date) AS sales_year,
-            WEEK(sales.sale_date, 1) AS sales_week,
+            YEAR(s.sale_date) AS sales_year,
+            WEEK(s.sale_date, 1) AS sales_week,
 
-            COALESCE(
-                SUM(sale_items.quantity),
-                0
-            ) AS total_quantity_sold,
+            COALESCE(SUM(si.quantity), 0) AS total_quantity_sold,
 
-            COALESCE(
-                SUM(sale_items.subtotal),
-                0
-            ) AS total_sales
+            COALESCE(SUM(si.subtotal), 0) AS total_sales
 
-        FROM sales
+        FROM sales s
 
-        JOIN sale_items
-            ON sales.sale_id = sale_items.sale_id
+        JOIN sale_items si
+            ON s.sale_id = si.sale_id
 
-        WHERE sales.store_id = %s
+        WHERE s.store_id = %s
+    """
 
+    params = [store_id]
+
+    if start_date:
+        sql += " AND DATE(s.sale_date) >= %s"
+        params.append(start_date)
+
+    if end_date:
+        sql += " AND DATE(s.sale_date) <= %s"
+        params.append(end_date)
+
+    sql += """
         GROUP BY
-            YEAR(sales.sale_date),
-            WEEK(sales.sale_date, 1)
+            YEAR(s.sale_date),
+            WEEK(s.sale_date, 1)
 
         ORDER BY
             sales_year ASC,
             sales_week ASC
     """
 
-    cursor.execute(sql, (store_id,))
-    weekly_sales = cursor.fetchall()
+    cursor.execute(sql, tuple(params))
+    sales = cursor.fetchall()
 
     cursor.close()
     db.close()
 
-    return weekly_sales
+    return sales
 
-def get_monthly_sales(store_id):
+
+def get_monthly_sales(store_id, start_date=None, end_date=None):
     db = get_db_connection()
     cursor = db.cursor(dictionary=True)
 
     sql = """
         SELECT
-            YEAR(sales.sale_date) AS sales_year,
-            MONTH(sales.sale_date) AS sales_month,
+            YEAR(s.sale_date) AS sales_year,
+            MONTH(s.sale_date) AS sales_month,
 
-            COALESCE(
-                SUM(sale_items.quantity),
-                0
-            ) AS total_quantity_sold,
+            COALESCE(SUM(si.quantity), 0) AS total_quantity_sold,
 
-            COALESCE(
-                SUM(sale_items.subtotal),
-                0
-            ) AS total_sales
+            COALESCE(SUM(si.subtotal), 0) AS total_sales
 
-        FROM sales
+        FROM sales s
 
-        JOIN sale_items
-            ON sales.sale_id = sale_items.sale_id
+        JOIN sale_items si
+            ON s.sale_id = si.sale_id
 
-        WHERE sales.store_id = %s
+        WHERE s.store_id = %s
+    """
 
+    params = [store_id]
+
+    if start_date:
+        sql += " AND DATE(s.sale_date) >= %s"
+        params.append(start_date)
+
+    if end_date:
+        sql += " AND DATE(s.sale_date) <= %s"
+        params.append(end_date)
+
+    sql += """
         GROUP BY
-            YEAR(sales.sale_date),
-            MONTH(sales.sale_date)
+            YEAR(s.sale_date),
+            MONTH(s.sale_date)
 
         ORDER BY
             sales_year ASC,
             sales_month ASC
     """
 
-    cursor.execute(sql, (store_id,))
-    monthly_sales = cursor.fetchall()
+    cursor.execute(sql, tuple(params))
+    sales = cursor.fetchall()
 
     cursor.close()
     db.close()
 
-    return monthly_sales
+    return sales
 
-def get_product_performance(store_id):
+
+def get_product_performance(store_id, start_date=None, end_date=None):
     db = get_db_connection()
     cursor = db.cursor(dictionary=True)
 
     sql = """
         SELECT
-            products.product_id,
-            products.product_name,
-            categories.category_name,
+            p.product_id,
+            p.product_name,
+            c.category_name,
 
-            COALESCE(
-                inventory.stock_quantity,
-                0
-            ) AS current_stock,
+            COALESCE(i.stock_quantity, 0) AS current_stock,
 
-            COALESCE(
-                SUM(sale_items.quantity),
-                0
-            ) AS total_quantity_sold,
+            COALESCE(SUM(si.quantity), 0) AS total_quantity_sold,
 
-            COALESCE(
-                SUM(sale_items.subtotal),
-                0
-            ) AS total_sales,
+            COALESCE(SUM(si.subtotal), 0) AS total_sales,
 
-            COUNT(
-                DISTINCT DATE(sales.sale_date)
-            ) AS sales_days
+            COUNT(DISTINCT DATE(s.sale_date)) AS sales_days
 
-        FROM products
+        FROM products p
 
-        LEFT JOIN categories
-            ON products.category_id = categories.category_id
+        LEFT JOIN categories c
+            ON p.category_id = c.category_id
 
-        LEFT JOIN inventory
-            ON products.product_id = inventory.product_id
+        LEFT JOIN inventory i
+            ON p.product_id = i.product_id
 
-        LEFT JOIN sale_items
-            ON products.product_id = sale_items.product_id
+        LEFT JOIN sale_items si
+            ON p.product_id = si.product_id
 
-        LEFT JOIN sales
-            ON sale_items.sale_id = sales.sale_id
+        LEFT JOIN sales s
+            ON si.sale_id = s.sale_id
+            AND s.store_id = %s
+    """
 
-        WHERE products.store_id = %s
+    params = [store_id]
 
+    conditions = ["p.store_id = %s"]
+    params.append(store_id)
+
+    if start_date:
+        conditions.append("DATE(s.sale_date) >= %s")
+        params.append(start_date)
+
+    if end_date:
+        conditions.append("DATE(s.sale_date) <= %s")
+        params.append(end_date)
+
+    sql += " WHERE " + " AND ".join(conditions)
+
+    sql += """
         GROUP BY
-            products.product_id,
-            products.product_name,
-            categories.category_name,
-            inventory.stock_quantity
+            p.product_id,
+            p.product_name,
+            c.category_name,
+            i.stock_quantity
 
         ORDER BY
             total_sales DESC
     """
 
-    cursor.execute(sql, (store_id,))
+    cursor.execute(sql, tuple(params))
     products = cursor.fetchall()
 
     cursor.close()
@@ -301,7 +349,7 @@ def get_product_performance(store_id):
         total_sales = product["total_sales"] or 0
         sales_days = product["sales_days"] or 0
 
-        # Average Daily Demand
+        # Average daily demand
         if sales_days > 0:
             average_daily_demand = (
                 total_quantity_sold / sales_days
@@ -309,7 +357,7 @@ def get_product_performance(store_id):
         else:
             average_daily_demand = 0
 
-        # Days Until Stock-out
+        # Days until stockout
         if average_daily_demand > 0:
             days_until_stockout = (
                 current_stock / average_daily_demand
@@ -326,7 +374,7 @@ def get_product_performance(store_id):
         if reorder_quantity < 0:
             reorder_quantity = 0
 
-        # Performance status
+        # Product status
         if current_stock <= 0:
             status = "OUT_OF_STOCK"
 

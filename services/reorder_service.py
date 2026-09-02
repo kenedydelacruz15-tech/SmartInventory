@@ -2,105 +2,44 @@ from database import get_db_connection
 
 
 def get_reorder_recommendations(store_id):
-    """
-    Generates inventory replenishment suggestions isolated by store ownership.
-    """
     db = get_db_connection()
     cursor = db.cursor(dictionary=True)
 
-    sql = """
-        SELECT
-            products.product_id,
-            products.product_name,
-            inventory.stock_quantity,
+    try:
+        cursor.execute(
+            """
+            SELECT
+                p.product_id,
+                p.product_name,
+                i.stock_quantity,
+                p.reorder_level,
 
-            COALESCE(
-                SUM(sale_items.quantity),
-                0
-            ) AS total_quantity_sold,
+                CASE
+                    WHEN i.stock_quantity = 0 THEN 'OUT_OF_STOCK'
+                    WHEN i.stock_quantity <= p.reorder_level THEN 'REORDER'
+                    ELSE 'STOCK_OK'
+                END AS status,
 
-            COUNT(
-                DISTINCT DATE(sales.sale_date)
-            ) AS sales_days
+                CASE
+                    WHEN i.stock_quantity <= p.reorder_level
+                    THEN (p.reorder_level * 2) - i.stock_quantity
+                    ELSE 0
+                END AS recommended_quantity
 
-        FROM products
+            FROM products p
+            JOIN inventory i
+                ON p.product_id = i.product_id
 
-        LEFT JOIN inventory
-            ON products.product_id = inventory.product_id
+            WHERE p.store_id = %s
+              AND i.stock_quantity <= p.reorder_level
 
-        LEFT JOIN sale_items
-            ON products.product_id = sale_items.product_id
+            ORDER BY i.stock_quantity ASC, p.product_name ASC
+            """,
+            (store_id,)
+        )
 
-        LEFT JOIN sales
-            ON sale_items.sale_id = sales.sale_id
+        return cursor.fetchall()
 
-        WHERE products.store_id = %s
-
-        GROUP BY
-            products.product_id,
-            products.product_name,
-            inventory.stock_quantity
-
-        ORDER BY products.product_name
-    """
-
-    cursor.execute(sql, (store_id,))
-    products = cursor.fetchall()
-
-    cursor.close()
-    db.close()
-
-    recommendations = []
-
-    for product in products:
-
-        current_stock = product["stock_quantity"] or 0
-        total_quantity_sold = product["total_quantity_sold"] or 0
-        sales_days = product["sales_days"] or 0
-
-        # Calculate average daily demand
-        if sales_days > 0:
-            average_daily_demand = (
-                total_quantity_sold / sales_days
-            )
-        else:
-            average_daily_demand = 0
-
-        # Target stock for the next 7 days
-        target_stock = average_daily_demand * 7
-
-        # Calculate recommended reorder quantity
-        reorder_quantity = target_stock - current_stock
-
-        if reorder_quantity < 0:
-            reorder_quantity = 0
-
-        # Determine recommendation status
-        if current_stock <= 0:
-            status = "REORDER_NOW"
-
-        elif reorder_quantity > 0:
-            status = "REORDER_RECOMMENDED"
-
-        else:
-            status = "STOCK_SUFFICIENT"
-
-        recommendations.append({
-            "product_id": product["product_id"],
-            "product_name": product["product_name"],
-            "current_stock": current_stock,
-            "average_daily_demand": round(
-                average_daily_demand,
-                2
-            ),
-            "target_stock_7_days": round(
-                target_stock,
-                2
-            ),
-            "recommended_reorder_quantity": round(
-                reorder_quantity
-            ),
-            "status": status
-        })
-
-    return recommendations
+    finally:
+        cursor.close()
+        db.close()

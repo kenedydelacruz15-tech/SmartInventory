@@ -1,7 +1,7 @@
 from datetime import timedelta
 from flask import Flask, jsonify
 from flask_cors import CORS
-from flask_jwt_extended import JWTManager 
+from flask_jwt_extended import JWTManager
 
 # Core and Operation Blueprints
 from routes.category_routes import category_bp
@@ -19,20 +19,31 @@ from routes.auth_routes import auth_bp
 from routes.backup_routes import backup_bp
 from routes.inventory_routes import inventory_bp
 from routes.stock_movement_routes import stock_movement_bp
+from routes.dashboard_routes import dashboard_bp
+
 
 app = Flask(__name__)
 
 CORS(app)
 
-app.config["JWT_SECRET_KEY"] = "super-secret-store-key-12345" 
+# Configure JWT authentication.
+app.config["JWT_SECRET_KEY"] = "super-secret-store-key-12345"
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(days=30)
+
 jwt = JWTManager(app)
 
+
+# Register authentication routes.
 app.register_blueprint(auth_bp, url_prefix="/auth")
-app.register_blueprint(inventory_bp, url_prefix="/inventory") 
+
+# Register backup routes.
 app.register_blueprint(backup_bp, url_prefix="/backup")
 
-# Standard Route Mappings
+# Register inventory routes only once.
+app.register_blueprint(inventory_bp)
+
+
+# Register application routes.
 app.register_blueprint(category_bp)
 app.register_blueprint(product_bp)
 app.register_blueprint(supplier_bp)
@@ -45,17 +56,16 @@ app.register_blueprint(reorder_bp)
 app.register_blueprint(alert_bp)
 app.register_blueprint(analytics_bp)
 app.register_blueprint(stock_movement_bp)
+app.register_blueprint(dashboard_bp)
 
-# Duplicate registration lines for backup_bp and inventory_bp have been completely removed
 
+# Confirm that the API server is running.
 @app.route("/")
 def home():
-    """
-    Root status check endpoint to confirm the server instance is online and accepting connections.
-    """
     return jsonify({
         "message": "Smart Inventory API is running!"
     })
+
 
 if __name__ == "__main__":
     app.run(debug=True)
