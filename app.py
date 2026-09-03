@@ -20,6 +20,7 @@ from routes.backup_routes import backup_bp
 from routes.inventory_routes import inventory_bp
 from routes.stock_movement_routes import stock_movement_bp
 from routes.dashboard_routes import dashboard_bp
+from routes.purchase_order_routes import purchase_order_bp
 
 
 app = Flask(__name__)
@@ -57,6 +58,7 @@ app.register_blueprint(alert_bp)
 app.register_blueprint(analytics_bp)
 app.register_blueprint(stock_movement_bp)
 app.register_blueprint(dashboard_bp)
+app.register_blueprint(purchase_order_bp)
 
 
 # Confirm that the API server is running.
